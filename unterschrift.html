@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Unterschrift</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--tx:#e2e8f0;--mut:#94a3b8;--ac:#3b82f6;--ok:#22c55e;--err:#ef4444}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font-family:system-ui,-apple-system,Segoe UI,sans-serif;overscroll-behavior:none}
+.view{display:none;min-height:100%;padding:24px;align-items:center;justify-content:center;flex-direction:column;gap:14px;text-align:center}
+.view.on{display:flex}
+.card{background:var(--card);border-radius:16px;padding:28px;width:100%;max-width:440px;display:flex;flex-direction:column;gap:14px}
+h1{font-size:1.4rem;margin:0}
+input{font:inherit;padding:14px;border-radius:10px;border:1px solid #334155;background:#0f172a;color:var(--tx);width:100%;text-align:center}
+input.code{font-size:1.8rem;letter-spacing:.3em;text-transform:uppercase}
+button{font:inherit;font-weight:600;padding:14px 18px;border:0;border-radius:10px;background:var(--ac);color:#fff;cursor:pointer}
+button.sec{background:#334155}
+button.del{background:var(--err);padding:6px 10px;font-size:.8rem}
+button:disabled{opacity:.5}
+.msg{min-height:1.2em;font-size:.9rem;color:var(--err)}
+.msg.ok{color:var(--ok)}
+.big{font-size:2.6rem;letter-spacing:.3em;font-weight:700;color:var(--ok)}
+table{width:100%;border-collapse:collapse;font-size:.9rem;text-align:left}
+td,th{padding:8px 6px;border-bottom:1px solid #334155}
+.tag{padding:2px 8px;border-radius:99px;font-size:.75rem;background:#334155}
+.tag.done{background:var(--ok);color:#052e16}
+a.lnk{color:var(--mut);font-size:.8rem}
+
+/* Unterschrift-Ansicht */
+#sign{position:fixed;inset:0;background:var(--bg);display:none;flex-direction:column;padding:10px;gap:10px;z-index:10}
+#sign.on{display:flex}
+#sign .bar{display:flex;gap:10px;align-items:center;justify-content:space-between}
+#sign .bar span{font-size:.9rem;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pad{flex:1;background:#fff;border-radius:12px;position:relative;min-height:0}
+.pad canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
+.pad .line{position:absolute;left:5%;right:5%;bottom:22%;border-bottom:2px dashed #cbd5e1;pointer-events:none}
+.pad .x{position:absolute;left:5%;bottom:24%;color:#94a3b8;font-size:1.2rem;pointer-events:none}
+.rotate{display:none;flex:1;align-items:center;justify-content:center;text-align:center;font-size:1.2rem;padding:30px}
+@media (orientation:portrait){
+  .pad{display:none}
+  .rotate{display:flex}
+  #sign .bar button.go{display:none}
+}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<!-- Hauptansicht: Code eingeben -->
+<div class="view on" id="vCode">
+  <div class="card">
+    <h1>Bitte Code eingeben:</h1>
+    <input id="codeIn" class="code" maxlength="6" autocomplete="off" autocapitalize="characters" placeholder="______">
+    <button id="codeBtn">Weiter</button>
+    <div class="msg" id="codeMsg"></div>
+    <button class="sec" id="reqBtn">Unterschrift anfordern</button>
+  </div>
+</div>
+
+<!-- Danke -->
+<div class="view" id="vDone">
+  <div class="card">
+    <h1>✅ Vielen Dank!</h1>
+    <div>Die Unterschrift wurde übermittelt.</div>
+  </div>
+</div>
+
+<!-- Admin Login -->
+<div class="view" id="vAdminLogin">
+  <div class="card">
+    <h1>Admin</h1>
+    <input id="admPw" type="password" placeholder="Passwort">
+    <button id="admLoginBtn">Anmelden</button>
+    <button class="sec" id="admLoginBack">Zurück</button>
+    <div class="msg" id="admLoginMsg"></div>
+  </div>
+</div>
+
+<!-- Admin -->
+<div class="view" id="vAdmin" style="justify-content:flex-start">
+  <div class="card" style="max-width:640px">
+    <h1>Neue Anforderung</h1>
+    <input id="admLabel" placeholder="Bezeichnung (z. B. Name oder Vorgang)">
+    <button id="admCreate">Anforderung erstellen &amp; Code generieren</button>
+    <div id="admResult" style="display:none">
+      <div style="color:var(--mut);font-size:.85rem">Code:</div>
+      <div class="big" id="admCode"></div>
+    </div>
+    <div class="msg" id="admMsg"></div>
+  </div>
+  <div class="card" style="max-width:640px">
+    <h1>Anforderungen</h1>
+    <table><thead><tr><th>Code</th><th>Bezeichnung</th><th>Status</th><th></th></tr></thead><tbody id="admList"></tbody></table>
+    <button class="sec" id="admRefresh">Aktualisieren</button>
+  </div>
+  <button class="sec" id="admBack">Zur Hauptseite</button>
+</div>
+
+<!-- Unterschrift -->
+<div id="sign">
+  <div class="bar">
+    <button class="sec" id="clearBtn">Löschen</button>
+    <span id="signLabel"></span>
+    <button class="go" id="sendBtn">Absenden</button>
+  </div>
+  <div class="pad" id="pad">
+    <canvas id="cv"></canvas>
+    <div class="x">✕</div><div class="line"></div>
+  </div>
+  <div class="rotate">📱↻<br>Bitte das Gerät ins Querformat drehen, um zu unterschreiben.</div>
+  <div class="msg" id="signMsg" style="text-align:center"></div>
+</div>
+
+<script>
+/* ===== KONFIGURATION ===== */
+const CFG = {
+  SUPABASE_URL: 'https://xbiyfwmaoynmchawmbkl.supabase.co',
+  SUPABASE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhiaXlmd21hb3lubWNoYXdtYmtsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE4MTIxMTksImV4cCI6MjEwNzM4ODExOX0.9Jw_RX-rdvYmeurRw_GC0XcSzwiETnGddhEzpecRw1o',
+  EMAILJS_SERVICE: 'service_xxxxxx',
+  EMAILJS_TEMPLATE: 'template_xxxxxx',
+  EMAILJS_PUBLIC_KEY: 'DEIN_PUBLIC_KEY',
+  EMPFAENGER: 'schwickert.louis@outlook.de',
+  ADMIN_PASSWORT: 'BfLA-Access26'
+};
+
+// Supabase Realtime: Änderungen an signature_requests live empfangen.
+// Die URL und der anon/publishable Key müssen unten in CFG eingetragen sein.
+let realtimeClient = null;
+let realtimeChannel = null;
+let realtimeRefreshTimer = null;
+
+function startRealtime() {
+  if (!window.supabase?.createClient) {
+    console.warn('Supabase-JS konnte nicht geladen werden; Realtime ist deaktiviert.');
+    return;
+  }
+  if (!CFG.SUPABASE_URL || CFG.SUPABASE_URL.includes('DEIN-PROJEKT') ||
+      !CFG.SUPABASE_KEY || CFG.SUPABASE_KEY === 'DEIN_ANON_KEY') {
+    console.warn('Bitte zuerst SUPABASE_URL und SUPABASE_KEY in CFG eintragen.');
+    return;
+  }
+  if (realtimeChannel) return;
+
+  realtimeClient = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY);
+  realtimeChannel = realtimeClient
+    .channel('signature-requests-live')
+    .on('postgres_changes', {
+      event: '*', schema: 'public', table: 'signature_requests'
+    }, (payload) => {
+      // Die Admin-Liste aktualisiert sich automatisch bei INSERT/UPDATE/DELETE.
+      if ($('vAdmin').classList.contains('on')) {
+        clearTimeout(realtimeRefreshTimer);
+        realtimeRefreshTimer = setTimeout(loadList, 150);
+      }
+
+      // Falls die aktuell geöffnete Anforderung auf einem anderen Gerät
+      // abgeschlossen oder gelöscht wurde, wird die Sitzung gesperrt.
+      if (current && payload.old?.id === current.id && payload.eventType === 'DELETE') {
+        current = null;
+        $('sign').classList.remove('on');
+        $('codeMsg').textContent = 'Diese Anforderung wurde gelöscht.';
+        show('vCode');
+      } else if (current && payload.new?.id === current.id &&
+                 payload.new.status && payload.new.status !== 'offen') {
+        current = null;
+        $('sign').classList.remove('on');
+        $('codeMsg').textContent = 'Dieser Code wurde bereits verwendet.';
+        show('vCode');
+      }
+    })
+    .subscribe((status) => {
+      console.info('Supabase Realtime:', status);
+    });
+}
+/* ========================= */
+
+const $ = id => document.getElementById(id);
+const show = id => { document.querySelectorAll('.view').forEach(v => v.classList.toggle('on', v.id === id)); };
+
+async function api(path, opts = {}) {
+  const r = await fetch(CFG.SUPABASE_URL + '/rest/v1/' + path, {
+    ...opts,
+    headers: { apikey: CFG.SUPABASE_KEY, Authorization: 'Bearer ' + CFG.SUPABASE_KEY,
+      'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) }
+  });
+  const t = await r.text();
+  if (!r.ok) throw new Error(t || r.status);
+  return t ? JSON.parse(t) : null;
+}
+
+/* ---------- Routing ---------- */
+function route() { show(location.hash === '#admin' ? 'vAdminLogin' : 'vCode'); }
+window.addEventListener('hashchange', route);
+route();
+$('reqBtn').onclick = () => { $('admPw').value = ''; $('admLoginMsg').textContent = ''; location.hash = '#admin'; };
+const goHome = () => { location.hash = ''; show('vCode'); };
+$('admLoginBack').onclick = goHome;
+$('admBack').onclick = goHome;
+
+/* ---------- Admin ---------- */
+$('admLoginBtn').onclick = () => {
+  if ($('admPw').value === CFG.ADMIN_PASSWORT) { show('vAdmin'); loadList(); }
+  else $('admLoginMsg').textContent = 'Falsches Passwort.';
+};
+$('admPw').addEventListener('keydown', e => e.key === 'Enter' && $('admLoginBtn').click());
+
+function genCode() {
+  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // ohne verwechselbare Zeichen
+  const b = crypto.getRandomValues(new Uint8Array(6));
+  return Array.from(b, x => A[x % A.length]).join('');
+}
+
+$('admCreate').onclick = async () => {
+  const msg = $('admMsg'); msg.className = 'msg'; msg.textContent = '';
+  const label = $('admLabel').value.trim();
+  if (!label) { msg.textContent = 'Bitte eine Bezeichnung eingeben.'; return; }
+  $('admCreate').disabled = true;
+  try {
+    let row;
+    for (let i = 0; i < 3 && !row; i++) {
+      try { row = (await api('signature_requests', { method: 'POST', body: JSON.stringify({ code: genCode(), label }) }))[0]; }
+      catch (e) { if (!/duplicate|23505/.test(e.message)) throw e; }
+    }
+    if (!row) throw new Error('Code konnte nicht erzeugt werden.');
+    $('admCode').textContent = row.code; $('admResult').style.display = 'block';
+    $('admLabel').value = '';
+    loadList();
+  } catch (e) { msg.textContent = 'Fehler: ' + e.message; }
+  $('admCreate').disabled = false;
+};
+
+async function loadList() {
+  try {
+    const rows = await api('signature_requests?select=id,code,label,status&order=created_at.desc&limit=50');
+    const tb = $('admList'); tb.innerHTML = '';
+    rows.forEach(r => {
+      const tr = document.createElement('tr');
+      const td = (t) => { const c = document.createElement('td'); c.textContent = t; tr.appendChild(c); return c; };
+      td(r.code).style.fontFamily = 'monospace'; td(r.label || '');
+      const s = td(''); const tag = document.createElement('span');
+      tag.className = 'tag' + (r.status === 'unterschrieben' ? ' done' : ''); tag.textContent = r.status; s.appendChild(tag);
+      const d = td(''); const b = document.createElement('button'); b.className = 'del'; b.textContent = '✕';
+      b.onclick = async () => { if (confirm('Anforderung löschen?')) { await api('signature_requests?id=eq.' + r.id, { method: 'DELETE' }); loadList(); } };
+      d.appendChild(b); tb.appendChild(tr);
+    });
+  } catch (e) { $('admMsg').textContent = 'Fehler: ' + e.message; }
+}
+$('admRefresh').onclick = loadList;
+
+/* ---------- Code prüfen ---------- */
+let current = null;
+async function checkCode() {
+  const code = $('codeIn').value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const msg = $('codeMsg'); msg.textContent = '';
+  if (code.length !== 6) { msg.textContent = 'Der Code hat 6 Zeichen.'; return; }
+  $('codeBtn').disabled = true;
+  try {
+    const rows = await api('signature_requests?select=id,code,label&status=eq.offen&code=eq.' + encodeURIComponent(code));
+    if (!rows.length) { msg.textContent = 'Code ungültig oder bereits verwendet.'; }
+    else { current = rows[0]; openSign(); }
+  } catch (e) { msg.textContent = 'Verbindungsfehler.'; }
+  $('codeBtn').disabled = false;
+}
+$('codeBtn').onclick = checkCode;
+$('codeIn').addEventListener('keydown', e => e.key === 'Enter' && checkCode());
+
+/* ---------- Unterschrift ---------- */
+const cv = $('cv'), ctx = cv.getContext('2d'), pad = $('pad');
+let hasInk = false, drawing = false, last = null;
+
+function openSign() {
+  $('signLabel').textContent = current.label || '';
+  $('sign').classList.add('on');
+  setTimeout(fit, 50);
+}
+
+function fit() {
+  const w = pad.clientWidth, h = pad.clientHeight;
+  if (!w || !h) return; // Hochformat: Feld ausgeblendet
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  if (cv.width === Math.round(w * dpr) && cv.height === Math.round(h * dpr)) return;
+  let snap = null;
+  if (hasInk && cv.width) { snap = document.createElement('canvas'); snap.width = cv.width; snap.height = cv.height; snap.getContext('2d').drawImage(cv, 0, 0); }
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.lineWidth = 3; ctx.lineCap = ctx.lineJoin = 'round'; ctx.strokeStyle = '#111';
+  if (snap) { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(snap, 0, 0, cv.width, cv.height); ctx.restore(); }
+}
+window.addEventListener('resize', () => { if ($('sign').classList.contains('on')) setTimeout(fit, 100); });
+window.addEventListener('orientationchange', () => setTimeout(fit, 250));
+
+const pos = e => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+cv.addEventListener('pointerdown', e => {
+  e.preventDefault(); cv.setPointerCapture(e.pointerId);
+  drawing = true; last = pos(e);
+  ctx.beginPath(); ctx.arc(last.x, last.y, 1.5, 0, 7); ctx.fillStyle = '#111'; ctx.fill(); hasInk = true;
+});
+cv.addEventListener('pointermove', e => {
+  if (!drawing) return; e.preventDefault();
+  const p = pos(e), mid = { x: (last.x + p.x) / 2, y: (last.y + p.y) / 2 };
+  ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.quadraticCurveTo(last.x, last.y, mid.x, mid.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+  last = p;
+});
+['pointerup', 'pointercancel'].forEach(t => cv.addEventListener(t, () => { drawing = false; }));
+
+$('clearBtn').onclick = () => { ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height); ctx.restore(); hasInk = false; $('signMsg').textContent = ''; };
+
+function toJpeg() {
+  const scale = Math.min(1, 800 / cv.width);
+  const t = document.createElement('canvas');
+  t.width = Math.round(cv.width * scale); t.height = Math.round(cv.height * scale);
+  const c = t.getContext('2d');
+  c.fillStyle = '#fff'; c.fillRect(0, 0, t.width, t.height); // JPEG hat keine Transparenz
+  c.drawImage(cv, 0, 0, t.width, t.height);
+  return t.toDataURL('image/jpeg', 0.75);
+}
+
+$('sendBtn').onclick = async () => {
+  const msg = $('signMsg'); msg.className = 'msg';
+  if (!hasInk) { msg.textContent = 'Bitte zuerst unterschreiben.'; return; }
+  $('sendBtn').disabled = true; msg.className = 'msg ok'; msg.textContent = 'Wird gesendet …';
+  try {
+    const r = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        service_id: CFG.EMAILJS_SERVICE, template_id: CFG.EMAILJS_TEMPLATE, user_id: CFG.EMAILJS_PUBLIC_KEY,
+        template_params: { to_email: CFG.EMPFAENGER, code: current.code, label: current.label || '', signature: toJpeg() }
+      })
+    });
+    if (!r.ok) throw new Error(await r.text());
+    await api('signature_requests?id=eq.' + current.id, { method: 'PATCH', body: JSON.stringify({ status: 'unterschrieben', signed_at: new Date().toISOString() }) });
+    $('sign').classList.remove('on'); $('clearBtn').click(); $('codeIn').value = ''; current = null;
+    show('vDone');
+  } catch (e) { msg.className = 'msg'; msg.textContent = 'Senden fehlgeschlagen: ' + e.message; }
+  $('sendBtn').disabled = false;
+};
+
+// Verbindung direkt beim Laden starten; Realtime-Events aktualisieren die Admin-Liste.
+startRealtime();
+</script>
+</body>
+</html>
