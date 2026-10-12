@@ -320,7 +320,7 @@ $('sendBtn').onclick = async () => {
     if (!current || !current.id) throw new Error('Keine aktive Unterschriftsanforderung gefunden.');
 
     // Der E-Mail-Versand läuft serverseitig über die Supabase Edge Function.
-    const r = await fetch(CFG.SUPABASE_URL + '/functions/v1/send-signature', {
+    const r = await fetch(CFG.SUPABASE_URL + '/functions/v1/bright-function', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
